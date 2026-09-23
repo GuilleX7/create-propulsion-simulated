@@ -3,23 +3,31 @@ package dev.propulsionteam.propulsionsimulated.content.thruster.vector_thruster.
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
+import com.simibubi.create.foundation.blockEntity.behaviour.fluid.SmartFluidTankBehaviour;
+import com.simibubi.create.foundation.utility.CreateLang;
 import dev.propulsionteam.propulsionsimulated.PropulsionConfig;
 import dev.propulsionteam.propulsionsimulated.content.thruster.AbstractThrusterBlock;
+import dev.propulsionteam.propulsionsimulated.content.thruster.ThrusterFuelManager;
 import dev.propulsionteam.propulsionsimulated.content.thruster.thruster.ThrusterBlockEntity;
 import dev.propulsionteam.propulsionsimulated.content.thruster.vector_thruster.VectorRedstoneLinkBehaviour;
 import dev.propulsionteam.propulsionsimulated.content.thruster.vector_thruster.VectorThrusterBlockEntity;
+import dev.propulsionteam.propulsionsimulated.content.thruster.vector_thruster.VectorThrusterControlMath;
 import dev.propulsionteam.propulsionsimulated.registries.PropulsionBlockEntities;
 import net.createmod.catnip.math.AngleHelper;
 import net.createmod.catnip.math.VecHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import org.joml.Vector3d;
 import java.util.List;
 
@@ -32,10 +40,10 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     public VectorRedstoneLinkBehaviour downLink;
     public VectorRedstoneLinkBehaviour upLink;
 
-    private int westSignal;
-    private int eastSignal;
-    private int downSignal;
-    private int upSignal;
+    private float westSignal;
+    private float eastSignal;
+    private float downSignal;
+    private float upSignal;
 
     private float targetVectorX;
     private float targetVectorY;
@@ -61,6 +69,13 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         super.addBehaviours(behaviours);
+
+        // VectorThrusterBlockEntity inherits IonThrusterBlockEntity, whose behaviour setup
+        // deliberately omits a fluid tank. This variant is fuel-powered, so restore the
+        // standard thruster tank and its configured-fuel validation.
+        tank = SmartFluidTankBehaviour.single(this, getBaseTankCapacityMb());
+        behaviours.add(tank);
+        tank.getPrimaryHandler().setValidator(stack -> ThrusterFuelManager.getProperties(stack.getFluid()) != null);
 
         westLink = VectorRedstoneLinkBehaviour.receiver(this,
             ValueBoxTransform.Dual.makeSlots(isFirst -> new VectorThrusterLinkTransform(isFirst, Direction.WEST)),
@@ -90,7 +105,7 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
 
     private void setSignal(int power, Direction localSide) {
         int clamped = Math.clamp(power, 0, 15);
-        int prev = switch (localSide) {
+        float prev = switch (localSide) {
             case WEST -> westSignal;
             case EAST -> eastSignal;
             case DOWN -> downSignal;
@@ -126,12 +141,12 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     public float getCurrentVectorX() { return currentVectorX; }
     public float getCurrentVectorY() { return currentVectorY; }
 
-    /** Sets the four directional signals to produce the given -1..1 vector. */
+    /** Sets the four directional signals without quantizing ComputerCraft coordinates to redstone levels. */
     public void setVectorCoordinates(float x, float y) {
-        westSignal = x > 0 ? Math.round(x * 15) : 0;
-        eastSignal = x < 0 ? Math.round(-x * 15) : 0;
-        downSignal = y > 0 ? Math.round(y * 15) : 0;
-        upSignal = y < 0 ? Math.round(-y * 15) : 0;
+        westSignal = VectorThrusterControlMath.positiveSignal(x);
+        eastSignal = VectorThrusterControlMath.negativeSignal(x);
+        downSignal = VectorThrusterControlMath.positiveSignal(y);
+        upSignal = VectorThrusterControlMath.negativeSignal(y);
         onVectorSignalChanged();
     }
 
@@ -160,6 +175,31 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
         currentFlapProgress = tweenTowards(currentFlapProgress, targetFlapProgress);
 
         super.tick();
+    }
+
+    @Override
+    protected boolean requiresPerTickEnergyUpdate() {
+        return false;
+    }
+
+    @Override
+    protected boolean usesFluidFuelAccounting() {
+        return true;
+    }
+
+    @Override
+    protected boolean shouldSyncThrustImmediately() {
+        return false;
+    }
+
+    @Override
+    protected boolean shouldSyncThrottleImmediately() {
+        return false;
+    }
+
+    @Override
+    protected boolean shouldSyncFuelTelemetryImmediately() {
+        return false;
     }
 
     @Override
@@ -250,6 +290,121 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
         return false;
     }
 
+    /**
+     * This class inherits vector steering from the ion thruster, but its propulsion is fuel-based.
+     * Do not inherit IonThrusterBlockEntity's empty-fluid and FE-only visual predicates.
+     */
+    @Override
+    public FluidStack fluidStack() {
+        return tank == null ? FluidStack.EMPTY : tank.getPrimaryHandler().getFluid();
+    }
+
+    @Override
+    public boolean validFluid() {
+        FluidStack fuel = fluidStack();
+        return !fuel.isEmpty() && getFuelProperties(fuel.getFluid()) != null;
+    }
+
+    @Override
+    protected boolean isWorking() {
+        return validFluid();
+    }
+
+    @Override
+    public boolean isIon() {
+        return false;
+    }
+
+    @Override
+    public boolean isVisuallyActive() {
+        return getThrottle() > 0.0d && validFluid();
+    }
+
+    @Override
+    public IFluidHandler getFluidHandler(Direction side) {
+        if (tank == null || (side != null && side != getFluidCapSide())) {
+            return null;
+        }
+        return tank.getPrimaryHandler();
+    }
+
+    @Override
+    public int getFuelAmountMb() {
+        return tank == null ? 0 : tank.getPrimaryHandler().getFluidAmount();
+    }
+
+    @Override
+    public int getFuelCapacityMb() {
+        return tank == null ? getBaseTankCapacityMb() : tank.getPrimaryHandler().getTankCapacity(0);
+    }
+
+    @Override
+    protected net.createmod.catnip.lang.LangBuilder getGoggleStatus() {
+        if (fluidStack().isEmpty()) {
+            return CreateLang.builder().add(Component.translatable("createpropulsion.gui.goggles.thruster.status.no_fuel"))
+                .style(ChatFormatting.RED);
+        }
+        if (!validFluid()) {
+            return CreateLang.builder().add(Component.translatable("createpropulsion.gui.goggles.thruster.status.wrong_fuel"))
+                .style(ChatFormatting.RED);
+        }
+        if (!isPowered()) {
+            return CreateLang.builder().add(Component.translatable("createpropulsion.gui.goggles.thruster.status.not_powered"))
+                .style(ChatFormatting.GOLD);
+        }
+        if (getEmptyBlocks() == 0) {
+            return CreateLang.builder().add(Component.translatable("createpropulsion.gui.goggles.thruster.obstructed"))
+                .style(ChatFormatting.RED);
+        }
+        return CreateLang.builder().add(Component.translatable("createpropulsion.gui.goggles.thruster.status.working"))
+            .style(ChatFormatting.GREEN);
+    }
+
+    @Override
+    protected void addThrusterDetails(List<Component> tooltip, boolean isPlayerSneaking) {
+        // Do not call IonThrusterBlockEntity's implementation: it appends FE storage
+        // and FE/t consumption. Use its shared output section, then show liquid fuel
+        // in the same format as the regular Thruster.
+        addIonThrusterOutputDetails(tooltip);
+        if (tank == null) {
+            return;
+        }
+
+        IFluidHandler handler = tank.getPrimaryHandler();
+        int capacity = handler.getTankCapacity(0);
+        int amount = handler.getFluidInTank(0).getAmount();
+
+        CreateLang.builder()
+            .add(Component.translatable("createpropulsion.gui.goggles.thruster.fuel_label"))
+            .style(ChatFormatting.WHITE)
+            .forGoggles(tooltip);
+        CreateLang.builder()
+            .add(Component.literal("  "))
+            .add(Component.literal(Integer.toString(amount)).withStyle(ChatFormatting.AQUA))
+            .add(Component.literal(" / ").withStyle(ChatFormatting.GRAY))
+            .add(Component.literal(Integer.toString(capacity)).withStyle(ChatFormatting.AQUA))
+            .add(Component.literal(" mB").withStyle(ChatFormatting.GRAY))
+            .forGoggles(tooltip);
+        CreateLang.builder()
+            .add(Component.literal("  "))
+            .add(Component.literal(String.format(java.util.Locale.ROOT, "%.1f", lastConsumedMbPerTick)).withStyle(ChatFormatting.AQUA))
+            .add(Component.literal(" mB/t").withStyle(ChatFormatting.GRAY))
+            .forGoggles(tooltip);
+    }
+
+    @Override
+    public void updateThrust(BlockState currentBlockState) {
+        updateSingleThrust(currentBlockState);
+    }
+
+    /** Shared plume resolver access to the existing fuel-driven particle selection. */
+    public net.minecraft.core.particles.ParticleOptions createResolvedParticleOptions() {
+        var properties = getFuelProperties(fluidStack().getFluid());
+        return properties == null
+                ? new dev.propulsionteam.propulsionsimulated.particles.plume.PlumeParticleData()
+                : properties.particleType().createParticleOptions(properties);
+    }
+
     private void onVectorSignalChanged() {
         updateMappedTargets();
         if (level != null && !level.isClientSide) {
@@ -259,8 +414,8 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     }
 
     private void updateMappedTargets() {
-        targetVectorX = Mth.clamp((westSignal - eastSignal) / 15.0f, -1.0f, 1.0f);
-        targetVectorY = Mth.clamp((downSignal - upSignal) / 15.0f, -1.0f, 1.0f);
+        targetVectorX = VectorThrusterControlMath.coordinateFromSignals(westSignal, eastSignal);
+        targetVectorY = VectorThrusterControlMath.coordinateFromSignals(downSignal, upSignal);
     }
 
     private static float tweenTowards(float current, float target) {
@@ -317,10 +472,10 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     @Override
     protected void write(CompoundTag compound, net.minecraft.core.HolderLookup.Provider registries, boolean clientPacket) {
         super.write(compound, registries, clientPacket);
-        compound.putInt("WestSignal", westSignal);
-        compound.putInt("EastSignal", eastSignal);
-        compound.putInt("DownSignal", downSignal);
-        compound.putInt("UpSignal", upSignal);
+        compound.putFloat("WestSignal", westSignal);
+        compound.putFloat("EastSignal", eastSignal);
+        compound.putFloat("DownSignal", downSignal);
+        compound.putFloat("UpSignal", upSignal);
         compound.putFloat("TargetVectorX", targetVectorX);
         compound.putFloat("TargetVectorY", targetVectorY);
         compound.putFloat("CurrentVectorX", currentVectorX);
@@ -331,10 +486,10 @@ public class LiquidVectorThrusterBlockEntity extends VectorThrusterBlockEntity {
     @Override
     protected void read(CompoundTag compound, net.minecraft.core.HolderLookup.Provider registries, boolean clientPacket) {
         super.read(compound, registries, clientPacket);
-        westSignal = compound.getInt("WestSignal");
-        eastSignal = compound.getInt("EastSignal");
-        downSignal = compound.getInt("DownSignal");
-        upSignal = compound.getInt("UpSignal");
+        westSignal = compound.getFloat("WestSignal");
+        eastSignal = compound.getFloat("EastSignal");
+        downSignal = compound.getFloat("DownSignal");
+        upSignal = compound.getFloat("UpSignal");
         updateMappedTargets();
         targetVectorX = compound.contains("TargetVectorX") ? compound.getFloat("TargetVectorX") : targetVectorX;
         targetVectorY = compound.contains("TargetVectorY") ? compound.getFloat("TargetVectorY") : targetVectorY;

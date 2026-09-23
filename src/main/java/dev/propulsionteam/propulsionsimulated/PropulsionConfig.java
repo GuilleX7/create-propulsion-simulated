@@ -36,6 +36,11 @@ public class PropulsionConfig {
     public static final ModConfigSpec.DoubleValue ION_MULTIBLOCK_2X_THRUST_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue ION_MULTIBLOCK_3X_THRUST_MULTIPLIER;
 
+    public static final ModConfigSpec.DoubleValue SINGLE_RCS_THRUST;
+    public static final ModConfigSpec.DoubleValue RCS_THRUST;
+    public static final ModConfigSpec.DoubleValue RCS_FLAME_SCALE;
+    public static final ModConfigSpec.DoubleValue RCS_SOUND_VOLUME;
+    public static final ModConfigSpec.IntValue RCS_SOUND_RANGE;
     public static final ModConfigSpec.DoubleValue VECTOR_THRUSTER_BASE_THRUST;
     public static final ModConfigSpec.DoubleValue LIQUID_VECTOR_THRUSTER_BASE_THRUST;
     public static final ModConfigSpec.IntValue LIQUID_VECTOR_THRUSTER_FUEL_TANK_CAPACITY_MB;
@@ -63,19 +68,18 @@ public class PropulsionConfig {
     public static final Map<String, ModConfigSpec.ConfigValue<String>> THRUSTER_DYE_COLORS = new LinkedHashMap<>();
     public static final ModConfigSpec.IntValue CABLE_ENERGY_TRANSFER;
 
-    public enum ThrusterPlumeType {
-        PARTICLES,
-        SPRITE_MESH,
-        SPRITE_MESH_SINGLE_MULTIBLOCK,
-        ROUND_MESH
+    // Creative tools
+    public static final ModConfigSpec.IntValue AUTO_GLUE_MAX_BLOCKS;
+    public static final ModConfigSpec.IntValue CONTRAPTION_MOVER_MAX_BLOCKS;
+    public static final ModConfigSpec.IntValue CONTRAPTION_CLONER_MAX_BLOCKS;
+    public static final ModConfigSpec.IntValue CONTRAPTION_REMOVER_MAX_BLOCKS;
+
+    public enum PlumeRenderMode {
+        PARTICLE,
+        SHADER
     }
 
-    //flame config options
-    public static final ModConfigSpec.EnumValue<ThrusterPlumeType> THRUSTER_PLUME_TYPE;
-    public static final ModConfigSpec.EnumValue<ThrusterPlumeType> CREATIVE_THRUSTER_PLUME_TYPE;
-    public static final ModConfigSpec.EnumValue<ThrusterPlumeType> ION_THRUSTER_PLUME_TYPE;
-    public static final ModConfigSpec.EnumValue<ThrusterPlumeType> VECTOR_THRUSTERS_PLUME_TYPE;
-    public static final ModConfigSpec.EnumValue<ThrusterPlumeType> SOLID_FUEL_THRUSTER_PLUME_TYPE;
+    public static final ModConfigSpec.EnumValue<PlumeRenderMode> PLUME_RENDER_MODE;
 
 
     public static final ModConfigSpec.BooleanValue DEBUG_THRUSTER;
@@ -83,6 +87,7 @@ public class PropulsionConfig {
     // Stirling engine
     public static final ModConfigSpec.ConfigValue<Double> STIRLING_GENERATED_SU;
     public static final ModConfigSpec.ConfigValue<Double> TILT_ADAPTER_ANGLE_RANGE;
+    public static final ModConfigSpec.IntValue ADVANCED_TILT_ADAPTER_MAX_ANGLE;
     public static final ModConfigSpec.ConfigValue<Double> STIRLING_REVOLUTION_PERIOD;
     public static final ModConfigSpec.ConfigValue<Double> STIRLING_CRANK_RADIUS;
     public static final ModConfigSpec.ConfigValue<Double> STIRLING_CONROD_LENGTH;
@@ -150,6 +155,14 @@ public class PropulsionConfig {
                 .defineInRange("creativeThrusterMultiblock2x2x2MaxThrust", 100000.0d, 10.0d, 100000000.0d);
         CREATIVE_THRUSTER_MULTIBLOCK_3X3X3_MAX_THRUST = COMMON_BUILDER.comment("Maximum thrust (kN) the scroll can reach on a 3x3x3 creative thruster multiblock.")
                 .defineInRange("creativeThrusterMultiblock3x3x3MaxThrust", 5000000.0d, 10.0d, 100000000.0d);
+        COMMON_BUILDER.pop();
+
+        COMMON_BUILDER.push("rcsThruster");
+        SINGLE_RCS_THRUST = COMMON_BUILDER.defineInRange("singleThrustPn", 100.0d, 0.0d, 10000000.0d);
+        RCS_THRUST = COMMON_BUILDER.defineInRange("fullThrustPerNozzlePn", 100.0d, 0.0d, 10000000.0d);
+        RCS_FLAME_SCALE = COMMON_BUILDER.defineInRange("flameScale", 1.0d, 0.0d, 8.0d);
+        RCS_SOUND_VOLUME = COMMON_BUILDER.defineInRange("soundVolume", 1.0d, 0.0d, 4.0d);
+        RCS_SOUND_RANGE = COMMON_BUILDER.defineInRange("soundRangeBlocks", 32, 1, 256);
         COMMON_BUILDER.pop();
 
         COMMON_BUILDER.push("vectorThruster");
@@ -226,7 +239,10 @@ public class PropulsionConfig {
 
         COMMON_BUILDER.push("Tilt Adapter");
         TILT_ADAPTER_ANGLE_RANGE = COMMON_BUILDER.comment("Maximum absolute output angle in degrees, reached at full redstone differential.")
-                .defineInRange("Maximum angle range", 90.0, 0.0, 180.0);
+                .defineInRange("Maximum angle range", 45.0, 0.0, 180.0);
+        ADVANCED_TILT_ADAPTER_MAX_ANGLE = COMMON_BUILDER.comment(
+                        "Maximum configurable angle per side for the Advanced Tilt Adapter.")
+                .defineInRange("Advanced maximum angle", 90, 1, 180);
         COMMON_BUILDER.pop();
 
         COMMON_BUILDER.push("Burners");
@@ -245,6 +261,25 @@ public class PropulsionConfig {
         COMMON_BUILDER.push("Cable");
         CABLE_ENERGY_TRANSFER = COMMON_BUILDER.comment("Maximum FE moved per tick by a single cable block.")
                 .defineInRange("Energy transfer", 1_000, 1, 100000000);
+        COMMON_BUILDER.pop();
+
+        COMMON_BUILDER.push("creativeTools");
+        AUTO_GLUE_MAX_BLOCKS = COMMON_BUILDER.comment(
+                        "Maximum connected blocks Auto Glue may scan before aborting.",
+                        "Higher values can increase server load when processing very large structures.")
+                .defineInRange("autoGlueMaxBlocks", 8_192, 1, Integer.MAX_VALUE);
+        CONTRAPTION_MOVER_MAX_BLOCKS = COMMON_BUILDER.comment(
+                        "Maximum connected blocks the Contraption Mover may capture.",
+                        "Higher values increase schematic size and server processing cost.")
+                .defineInRange("contraptionMoverMaxBlocks", 16_384, 1, Integer.MAX_VALUE);
+        CONTRAPTION_CLONER_MAX_BLOCKS = COMMON_BUILDER.comment(
+                        "Maximum connected blocks the Contraption Cloner may capture.",
+                        "Higher values increase schematic size and server processing cost.")
+                .defineInRange("contraptionClonerMaxBlocks", 16_384, 1, Integer.MAX_VALUE);
+        CONTRAPTION_REMOVER_MAX_BLOCKS = COMMON_BUILDER.comment(
+                        "Maximum connected blocks the Contraption Remover may delete.",
+                        "Higher values can increase server load when removing very large structures.")
+                .defineInRange("contraptionRemoverMaxBlocks", 16_384, 1, Integer.MAX_VALUE);
         COMMON_BUILDER.pop();
 
         COMMON_BUILDER.push("Fuel Configuration");
@@ -340,13 +375,9 @@ public class PropulsionConfig {
                 .define("Thruster", false);
         CLIENT_BUILDER.pop();
 
-        CLIENT_BUILDER.push("Thruster Render Types");
-        CLIENT_BUILDER.comment("How the thruster plume should be rendered.");
-        THRUSTER_PLUME_TYPE = CLIENT_BUILDER.defineEnum("Thruster Plume Type", ThrusterPlumeType.PARTICLES);
-        CREATIVE_THRUSTER_PLUME_TYPE = CLIENT_BUILDER.defineEnum("Creative Thruster Plume Type", ThrusterPlumeType.SPRITE_MESH);
-        ION_THRUSTER_PLUME_TYPE = CLIENT_BUILDER.defineEnum("Ion Thruster Plume Type", ThrusterPlumeType.SPRITE_MESH);
-        SOLID_FUEL_THRUSTER_PLUME_TYPE = CLIENT_BUILDER.defineEnum("Solid Fuel Thruster Plume Type", ThrusterPlumeType.PARTICLES);
-        VECTOR_THRUSTERS_PLUME_TYPE = CLIENT_BUILDER.defineEnum("Vector Thrusters Plume Type", ThrusterPlumeType.SPRITE_MESH);
+        CLIENT_BUILDER.push("Thruster Plumes");
+        PLUME_RENDER_MODE = CLIENT_BUILDER.comment("How every thruster plume is rendered. Particle uses normal particle effects; Shader uses the procedural plume shader.")
+                .defineEnum("renderMode", PlumeRenderMode.PARTICLE);
         CLIENT_BUILDER.pop();
 
 
@@ -517,24 +548,14 @@ public class PropulsionConfig {
     }
 
 
-    public static ThrusterPlumeType getThrusterPlumeType() {
-        return THRUSTER_PLUME_TYPE.get();
-    }
-
-    public static ThrusterPlumeType getCreativeThrusterPlumeType() {
-        return CREATIVE_THRUSTER_PLUME_TYPE.get();
-    }
-
-    public static ThrusterPlumeType getIonThrusterPlumeType() {
-        return ION_THRUSTER_PLUME_TYPE.get();
-    }
-
-    public static ThrusterPlumeType getVectorThrustersPlumeType() {
-        return VECTOR_THRUSTERS_PLUME_TYPE.get();
-    }
-
-    public static ThrusterPlumeType getSolidFuelThrusterPlumeType() {
-        return SOLID_FUEL_THRUSTER_PLUME_TYPE.get();
+    public static boolean useShaderPlumes() {
+        try {
+            return PLUME_RENDER_MODE.get() == PlumeRenderMode.SHADER;
+        } catch (IllegalStateException ignored) {
+            // Client configs are not loaded on dedicated servers. Particle plumes are the
+            // safe fallback because server-side thruster ticking uses this value too.
+            return false;
+        }
     }
 
 }

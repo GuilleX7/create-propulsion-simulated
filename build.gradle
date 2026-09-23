@@ -42,6 +42,7 @@ neoForge {
 }
 
 sourceSets.main.resources { srcDirs = ['src/main/resources', 'src/generated/resources'] }
+neoForge.addModdingDependenciesTo(sourceSets.test)
 
 repositories {
     mavenCentral()
@@ -152,9 +153,10 @@ dependencies {
     compileOnly "curse.maven:createindustry-693815:7236535"
     //CC
     compileOnly "cc.tweaked:cc-tweaked-${minecraft_version}-forge:${cc_version}"
-    //JEI, create addition, Jade
+    //JEI, create addition, Create: Connected, Jade
     runtimeOnly "mezz.jei:jei-${minecraft_version}-neoforge:19.25.0.322"
     runtimeOnly files("libs/createaddition-1.5.10.jar")
+    runtimeOnly files("libs/create_connected-1.3.2-mc${minecraft_version}.jar")
     runtimeOnly files("libs/Jade-${minecraft_version}-NeoForge-15.10.5.jar")
     //KFF
     implementation "thedarkcolour:kotlinforforge-neoforge:5.9.0"
@@ -177,7 +179,7 @@ dependencies {
     implementation "org.joml:joml-primitives:1.10.0"
 
     //Sable
-    implementation("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${bundled_version}")
+    implementation("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}")
     api("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}")
     implementation "dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}"
 
@@ -188,6 +190,15 @@ dependencies {
     implementation("dev.eriksonn.aeronautics:aeronautics-neoforge-1.21.1:${bundled_version}")
     //https://maven.ryanhcode.dev/#/releases/dev/ryanhcode/offroad/offroad-neoforge-1.21.1/1.2.1
     implementation "dev.ryanhcode.offroad:offroad-neoforge-1.21.1:${bundled_version}"
+
+    testImplementation platform("org.junit:junit-bom:5.11.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "com.google.code.gson:gson"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -197,6 +208,7 @@ tasks.named('processResources', ProcessResources).configure {
             neoforge_loader_version_range: neoforge_loader_version_range,
             mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
             mod_authors: mod_authors, mod_description: mod_description,
+            sable_version: sable_version,
     ]
     inputs.properties replaceProperties
 

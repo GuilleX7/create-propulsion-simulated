@@ -5,8 +5,8 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import com.simibubi.create.foundation.blockEntity.renderer.SmartBlockEntityRenderer;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
+import dev.propulsionteam.propulsionsimulated.client.render.plume.ThrusterPlumeRenderer;
 import dev.propulsionteam.propulsionsimulated.content.thruster.AbstractThrusterBlock;
-import dev.propulsionteam.propulsionsimulated.content.thruster.MeshedThrusterFlameUtils;
 import dev.propulsionteam.propulsionsimulated.content.thruster.ThrusterDebugRenderer;
 import dev.propulsionteam.propulsionsimulated.registries.PropulsionPartialModels;
 import net.createmod.catnip.render.CachedBuffers;
@@ -23,33 +23,31 @@ public class ThrusterRenderer extends SmartBlockEntityRenderer<ThrusterBlockEnti
     }
 
     @Override
-    protected void renderSafe(ThrusterBlockEntity be, float partialTick, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
+    protected void renderSafe(ThrusterBlockEntity be, float partialTicks, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
         ThrusterDebugRenderer.render(be, ms, buffer);
-        if (be.isMultiblock()) {
-            if (be.isController()) {
-                PartialModel model = getMultiblockModel(be.width);
-                if (model == null) return;
 
-                BlockState state = be.getBlockState();
-                Direction facing = state.getValue(AbstractThrusterBlock.FACING);
-                int w = be.width;
+        ThrusterPlumeRenderer.render(be, partialTicks, ms, buffer);
 
-                SuperByteBuffer mb = CachedBuffers.partial(model, state);
-                VertexConsumer vb = buffer.getBuffer(RenderType.cutoutMipped());
+        if (!be.isController() || !be.isMultiblock()) return;
 
-                ms.pushPose();
-                float cx = w * 0.5f;
-                ms.translate(cx, cx, cx);
-                applyFacingRotation(ms, facing);
-                ms.translate(-cx, -cx, -cx);
-                ms.scale(w, w, w);
-                mb.light(light).overlay(overlay).renderInto(ms, vb);
-                ms.popPose();
-                MeshedThrusterFlameUtils.renderMultiblockFlame(be, partialTick, ms, buffer, w);
-            }
-        } else {
-            MeshedThrusterFlameUtils.renderMeshFlame(be, partialTick, ms, buffer);
-        }
+        PartialModel model = getMultiblockModel(be.width);
+        if (model == null) return;
+
+        BlockState state = be.getBlockState();
+        Direction facing = state.getValue(AbstractThrusterBlock.FACING);
+        int w = be.width;
+
+        SuperByteBuffer mb = CachedBuffers.partial(model, state);
+        VertexConsumer vb = buffer.getBuffer(RenderType.cutoutMipped());
+
+        ms.pushPose();
+        float cx = w * 0.5f;
+        ms.translate(cx, cx, cx);
+        applyFacingRotation(ms, facing);
+        ms.translate(-cx, -cx, -cx);
+        ms.scale(w, w, w);
+        mb.light(light).overlay(overlay).renderInto(ms, vb);
+        ms.popPose();
     }
 
     private static PartialModel getMultiblockModel(int width) {
@@ -68,5 +66,15 @@ public class ThrusterRenderer extends SmartBlockEntityRenderer<ThrusterBlockEnti
             case UP -> ms.mulPose(Axis.XP.rotationDegrees(-270));
             case DOWN -> ms.mulPose(Axis.XP.rotationDegrees(-90));
         }
+    }
+
+    @Override
+    public boolean shouldRenderOffScreen(ThrusterBlockEntity be) {
+        return true;
+    }
+
+    @Override
+    public int getViewDistance() {
+        return 256;
     }
 }

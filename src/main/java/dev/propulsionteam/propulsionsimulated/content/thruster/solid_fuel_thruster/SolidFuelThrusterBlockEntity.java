@@ -8,7 +8,6 @@ import net.createmod.catnip.lang.LangBuilder;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -17,6 +16,7 @@ import net.minecraft.world.Clearable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -37,6 +37,7 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
 
     private int burnTime = 0;
     private int totalBurnTicks = 0;
+    private double burnDrainAccumulator = 0.0d;
     private boolean superHeated = false;
     private boolean hatchOpen = false;
     private boolean wasPoweredLastTick = false;
@@ -49,10 +50,6 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
         super(type, pos, state);
     }
 
-    public PropulsionConfig.ThrusterPlumeType getPlumeRenderType() {
-        return PropulsionConfig.getSolidFuelThrusterPlumeType();
-    }
-
     @Override
     public boolean supportsMultiblock() {
         return false;
@@ -61,37 +58,48 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
     @Override
     public void tick() {
         if (level != null && !level.isClientSide) {
-            tickFuel();
             if (hatchOpen) {
                 tryPullFuelFromBehind();
             }
+            tickFuel();
         }
         super.tick();
     }
 
     private void tickFuel() {
-        boolean powered = isPowered();
-
-        if (burnTime > 0 && powered && !SolidFuelThrusterFuelHelper.isInfiniteBurnTime(burnTime)) {
-            burnTime--;
+        if (burnTime > 0 && !SolidFuelThrusterFuelHelper.isInfiniteBurnTime(burnTime)) {
+            burnDrainAccumulator += getEffectiveThrustPercentage();
+            int burnTicks = (int) Math.floor(burnDrainAccumulator);
+            if (burnTicks > 0) {
+                burnDrainAccumulator -= burnTicks;
+                burnTime = Math.max(0, burnTime - burnTicks);
+            }
         }
 
-        if (burnTime > 0 && powered != wasPoweredLastTick) {
+        boolean burning = burnTime > 0;
+        if (burning != wasPoweredLastTick) {
             syncBurnStateToClient();
-        } else if (burnTime > 0 && powered && level != null
-                && level.getGameTime() % BURN_SYNC_INTERVAL_TICKS == 0) {
+        } else if (burning && level != null && level.getGameTime() % BURN_SYNC_INTERVAL_TICKS == 0) {
             syncBurnStateToClient();
         }
-        wasPoweredLastTick = powered;
+        wasPoweredLastTick = burning;
 
         if (burnTime <= 0) {
-            ItemStack fuel = getFuelStack();
-            if (!fuel.isEmpty() && !SolidFuelThrusterFuelHelper.isInfiniteFuel(fuel)) {
-                setFuelStack(ItemStack.EMPTY);
+            if (totalBurnTicks > 0) {
+                ItemStack fuel = getFuelStack();
+                if (!fuel.isEmpty() && !SolidFuelThrusterFuelHelper.isInfiniteFuel(fuel)) {
+                    setFuelStack(ItemStack.EMPTY);
+                }
+                superHeated = false;
+                totalBurnTicks = 0;
+                burnDrainAccumulator = 0.0d;
+                if (hatchOpen) {
+                    tryPullFuelFromBehind();
+                }
+                tryStartBurning();
+            } else if (isPowered()) {
+                tryStartBurning();
             }
-            superHeated = false;
-            totalBurnTicks = 0;
-            tryStartBurning();
         }
     }
 
@@ -129,7 +137,7 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
 
     void onInventoryChanged(int slot) {
         markFuelChanged();
-        if (burnTime <= 0) {
+        if (burnTime <= 0 && isPowered()) {
             tryStartBurning();
         }
     }
@@ -273,8 +281,9 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
     @Override
     public float getPower() {
         if (controlMode == ControlMode.PERIPHERAL) {
-            return digitalInput > 0.0f ? 1.0f : 0.0f;
+            return digitalInput;
         }
+        if (hasActiveBurn()) return 1.0f;
         return redstoneInput > 0 ? 1.0f : 0.0f;
     }
 
@@ -284,19 +293,18 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
 
     @Override
     protected boolean isWorking() {
-        return isPowered() && hasActiveBurn();
+        return hasActiveBurn();
     }
 
     @Override
     public void updateThrust(BlockState currentBlockState) {
         float thrust = 0;
-        float currentPower = getPower();
+        float currentPower = getEffectiveThrottle();
 
-        if (isWorking() && currentPower > 0) {
+        if (hasActiveBurn() && currentPower > 0) {
             ItemStack fuel = getFuelStack();
             ItemThrusterProperties properties = SolidThrusterFuelManager.getProperties(fuel);
-            float obstructionEffect = calculateObstructionEffect();
-            float thrustPercentage = Math.min(currentPower, obstructionEffect);
+            float thrustPercentage = getEffectiveThrustPercentage();
 
             if (thrustPercentage > 0 && properties != null) {
                 float fuelEfficiency = SolidThrusterFuelManager.getEfficiency(fuel.getItem());
@@ -337,24 +345,6 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
     @Override
     protected double getParticleVelocityMultiplier() {
         return PropulsionConfig.SOLID_FUEL_THRUSTER_PARTICLE_VELOCITY_MULTIPLIER.get();
-    }
-
-    @Override
-    public boolean shouldEmitPlume() {
-        if (!super.shouldEmitPlume()) {
-            return false;
-        }
-        ItemThrusterProperties properties = SolidThrusterFuelManager.getProperties(getFuelStack());
-        return properties != null && properties.particleType() != ThrusterParticleType.NONE;
-    }
-
-    @Override
-    protected ParticleOptions createParticleOptions() {
-        ItemThrusterProperties properties = SolidThrusterFuelManager.getProperties(getFuelStack());
-        if (properties == null) {
-            return super.createParticleOptions();
-        }
-        return properties.particleType().createParticleOptions(properties);
     }
 
     @Override
@@ -457,6 +447,7 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
         setFuelStack(ItemStack.EMPTY);
         burnTime = 0;
         totalBurnTicks = 0;
+        burnDrainAccumulator = 0.0d;
         superHeated = false;
     }
 
@@ -465,6 +456,7 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
         super.write(compound, registries, clientPacket);
         compound.putInt("BurnTime", burnTime);
         compound.putInt("TotalBurnTicks", totalBurnTicks);
+        compound.putDouble("BurnDrainAccumulator", burnDrainAccumulator);
         compound.putBoolean("SuperHeated", superHeated);
         compound.putBoolean("HatchOpen", hatchOpen);
         compound.put("Inventory", inventory.serializeNBT(registries));
@@ -476,7 +468,8 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
         burnTime = compound.getInt("BurnTime");
         totalBurnTicks = compound.contains("TotalBurnTicks")
                 ? compound.getInt("TotalBurnTicks")
-                : burnTime;
+            : burnTime;
+        burnDrainAccumulator = compound.getDouble("BurnDrainAccumulator");
         superHeated = compound.getBoolean("SuperHeated");
         hatchOpen = compound.getBoolean("HatchOpen");
         if (compound.contains("Inventory")) {
@@ -510,7 +503,7 @@ public class SolidFuelThrusterBlockEntity extends AbstractThrusterBlockEntity im
     @Override
     public void initialize() {
         super.initialize();
-        if (level != null && !level.isClientSide && burnTime <= 0) {
+        if (level != null && !level.isClientSide && burnTime <= 0 && isPowered()) {
             tryStartBurning();
         }
     }

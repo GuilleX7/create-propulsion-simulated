@@ -55,7 +55,7 @@ public class CreativeVectorThrusterBlockEntity extends VectorThrusterBlockEntity
     @Override
     public void updateThrust(BlockState currentBlockState) {
         float thrust = 0;
-        float currentPower = getPower();
+        float currentPower = getEffectiveThrottle();
         if (currentPower > 0) {
             float baseThrustPn = peripheralThrustOutput >= 0.0f ? peripheralThrustOutput : (float) (powerBehaviour.getTargetThrust() * getThrustUnitsPerKn());
             baseThrustPn *= (float) calculateAtmosphericFactor();
@@ -90,6 +90,11 @@ public class CreativeVectorThrusterBlockEntity extends VectorThrusterBlockEntity
         return hasPlumeSpace();
     }
 
+    @Override
+    public boolean isVisuallyActive() {
+        return shouldEmitPlume();
+    }
+
     private boolean hasPlumeSpace() {
         if (level == null)
             return false;
@@ -111,18 +116,25 @@ public class CreativeVectorThrusterBlockEntity extends VectorThrusterBlockEntity
 
     @Override
     protected ParticleOptions createParticleOptions() {
-        Integer color = getDyeColor();
         if (plumeType == CreativeThrusterBlockEntity.PlumeType.PLASMA) {
-            return new PlasmaParticleData(List.of(), color);
+            return new PlasmaParticleData(List.of(), getDyeColor());
         }
         if (plumeType == CreativeThrusterBlockEntity.PlumeType.ION) {
-            float size = Mth.lerp(getInterpolatedFlapProgress(1.0f), 0.85f, 0.35f);
-            return new IonParticleData(List.of(), color, size);
+            return new IonParticleData(List.of(), getDyeColor(), null);
         }
         if (plumeType == CreativeThrusterBlockEntity.PlumeType.PLUME) {
-            return new PlumeParticleData(List.of(), color);
+            return new PlumeParticleData(List.of(), getDyeColor());
         }
-        return new PlumeParticleData(List.of(), color);
+        return new PlumeParticleData(List.of(), getDyeColor());
+    }
+
+    /** Creative-vector Ion mode retains the vector nozzle's redstone-driven particle narrowing. */
+    public ParticleOptions createCreativeVectorPlumeParticleOptions() {
+        if (plumeType == CreativeThrusterBlockEntity.PlumeType.ION) {
+            float size = Mth.lerp(getInterpolatedFlapProgress(1.0f), 0.85f, 0.35f);
+            return new IonParticleData(List.of(), getDyeColor(), size);
+        }
+        return createParticleOptions();
     }
 
 

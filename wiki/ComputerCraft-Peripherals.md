@@ -13,7 +13,7 @@ All thrust readouts and thrust-derived physics use the shared `thrustUnitsPerKn`
 While **any** computer is attached to a thruster peripheral:
 
 1. The block uses **peripheral throttle** (normalized `0.0 … 1.0`), driven by Lua (`setPower`, `setThrust`, etc.).
-2. **`getPower()`** returns that peripheral throttle (same scale redstone would use: `redstone / 15`).
+2. **`getPower()`** returns that peripheral throttle. Normalized commands retain floating-point precision and are not rounded to one of the 16 redstone levels.
 3. World **redstone signals next to the block do not drive thrust** until the computer disconnects.
 
 When the computer **detaches**, peripheral throttle is cleared and the thruster returns to **normal** redstone-controlled behavior.
@@ -30,7 +30,7 @@ Fluid thrusters, solid fuel thrusters, and ion thrusters use **different periphe
 |--------|---------|--------|
 | `getObstruction()` | `number` | Returns unobstructed-block count from the obstruction scan |
 | `setPower(redstonePower)` | — | `redstonePower`: `0 … 15`; sets peripheral throttle |
-| `setPowerNormalized(power)` | — | `power`: `0.0 … 1.0` |
+| `setPowerNormalized(power)` | — | Precise normalized `power`: `0.0 … 1.0`; values are clamped but not quantized to redstone levels |
 | `getPower()` | `number` | Normalized throttle `0.0 … 1.0` |
 | `getCurrentThrustPN()` | `number` | |
 | `getCurrentThrustKN()` | `number` | |
@@ -117,9 +117,9 @@ Standard **fuel** vector thruster (not liquid fuel cell, not creative). Directio
 |--------|--------|
 | `getVectorX()` / `getVectorY()` | Current nozzle direction components |
 | `getTargetVectorX()` / `getTargetVectorY()` | Target |
-| `setVectorX(x)` | `x` clamped `-1.0 … 1.0` |
-| `setVectorY(y)` | `y` clamped `-1.0 … 1.0` |
-| `setVector(x, y)` | Both clamped |
+| `setVectorX(x)` | Precise `x` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVectorY(y)` | Precise `y` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVector(x, y)` | Both coordinates are clamped and retain floating-point precision |
 
 ### Throttle (`0 … 15` or normalized)
 
@@ -144,9 +144,9 @@ Liquid-fuel vector thruster: **same direction and throttle methods** as **Vector
 |--------|--------|
 | `getVectorX()` / `getVectorY()` | Current nozzle direction components |
 | `getTargetVectorX()` / `getTargetVectorY()` | Target |
-| `setVectorX(x)` | `x` clamped `-1.0 … 1.0` |
-| `setVectorY(y)` | `y` clamped `-1.0 … 1.0` |
-| `setVector(x, y)` | Both clamped |
+| `setVectorX(x)` | Precise `x` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVectorY(y)` | Precise `y` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVector(x, y)` | Both coordinates are clamped and retain floating-point precision |
 
 ### Throttle (`0 … 15` or normalized)
 
@@ -178,9 +178,9 @@ Separate peripheral implementation (`CreativeVectorThrusterPeripheral`): directi
 |--------|--------|
 | `getVectorX()` / `getVectorY()` | Current nozzle direction components |
 | `getTargetVectorX()` / `getTargetVectorY()` | Target |
-| `setVectorX(x)` | `x` clamped `-1.0 … 1.0` |
-| `setVectorY(y)` | `y` clamped `-1.0 … 1.0` |
-| `setVector(x, y)` | Both clamped |
+| `setVectorX(x)` | Precise `x` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVectorY(y)` | Precise `y` clamped `-1.0 … 1.0`; not quantized to redstone levels |
+| `setVector(x, y)` | Both coordinates are clamped and retain floating-point precision |
 
 ### Throttle (`0 … 15` or normalized)
 

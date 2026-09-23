@@ -1,12 +1,11 @@
 package dev.propulsionteam.propulsionsimulated.content.thruster.vector_thruster;
 
 import dev.propulsionteam.propulsionsimulated.PropulsionConfig;
-import dev.propulsionteam.propulsionsimulated.content.thruster.MeshedThrusterFlameUtils;
 import dev.propulsionteam.propulsionsimulated.particles.ion.IonParticleData;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -24,6 +23,8 @@ import net.createmod.catnip.math.AngleHelper;
 import net.createmod.catnip.math.VecHelper;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 import org.joml.Vector3d;
 
 public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
@@ -35,10 +36,10 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
     public VectorRedstoneLinkBehaviour downLink;
     public VectorRedstoneLinkBehaviour upLink;
 
-    private int westSignal;
-    private int eastSignal;
-    private int downSignal;
-    private int upSignal;
+    private float westSignal;
+    private float eastSignal;
+    private float downSignal;
+    private float upSignal;
 
     private float targetVectorX;
     private float targetVectorY;
@@ -66,11 +67,6 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
     protected VectorThrusterBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
     }
-
-    public PropulsionConfig.ThrusterPlumeType getPlumeRenderType() {
-        return PropulsionConfig.getVectorThrustersPlumeType();
-    }
-
 
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
@@ -104,7 +100,7 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
 
     private void setSignal(int power, Direction localSide) {
         int clamped = Math.clamp(power, 0, 15);
-        int prev = switch (localSide) {
+        float prev = switch (localSide) {
             case WEST -> westSignal;
             case EAST -> eastSignal;
             case DOWN -> downSignal;
@@ -153,19 +149,21 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
         return Mth.lerp(partialTick, prevFlapProgress, currentFlapProgress);
     }
 
+    @OnlyIn(Dist.CLIENT)
     @Override
     public AABB getRenderBoundingBox() {
-        return MeshedThrusterFlameUtils.inflateVectorRenderBoundingBox(this, getSingleRenderBox());
+        return super.getRenderBoundingBox();
     }
 
     /**
-     * Sets the four directional signals to produce the given -1..1 vector.
+     * Sets the four directional signals to produce the given -1..1 vector without
+     * quantizing ComputerCraft coordinates to redstone levels.
      */
     public void setVectorCoordinates(float x, float y) {
-        westSignal = x > 0 ? Math.round(x * 15) : 0;
-        eastSignal = x < 0 ? Math.round(-x * 15) : 0;
-        downSignal = y > 0 ? Math.round(y * 15) : 0;
-        upSignal = y < 0 ? Math.round(-y * 15) : 0;
+        westSignal = VectorThrusterControlMath.positiveSignal(x);
+        eastSignal = VectorThrusterControlMath.negativeSignal(x);
+        downSignal = VectorThrusterControlMath.positiveSignal(y);
+        upSignal = VectorThrusterControlMath.negativeSignal(y);
         onVectorSignalChanged();
     }
 
@@ -294,8 +292,8 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
     private void updateMappedTargets() {
         // West signal tilts nozzle right (+X); East tilts it left (-X).
         // Down signal tilts nozzle up (+Y); Up tilts it down (-Y).
-        targetVectorX = Mth.clamp((westSignal - eastSignal) / 15.0f, -1.0f, 1.0f);
-        targetVectorY = Mth.clamp((downSignal - upSignal) / 15.0f, -1.0f, 1.0f);
+        targetVectorX = VectorThrusterControlMath.coordinateFromSignals(westSignal, eastSignal);
+        targetVectorY = VectorThrusterControlMath.coordinateFromSignals(downSignal, upSignal);
     }
 
     private static float tweenTowards(float current, float target) {
@@ -327,10 +325,10 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
     @Override
     protected void write(CompoundTag compound, net.minecraft.core.HolderLookup.Provider registries, boolean clientPacket) {
         super.write(compound, registries, clientPacket);
-        compound.putInt("WestSignal", westSignal);
-        compound.putInt("EastSignal", eastSignal);
-        compound.putInt("DownSignal", downSignal);
-        compound.putInt("UpSignal", upSignal);
+        compound.putFloat("WestSignal", westSignal);
+        compound.putFloat("EastSignal", eastSignal);
+        compound.putFloat("DownSignal", downSignal);
+        compound.putFloat("UpSignal", upSignal);
         compound.putFloat("TargetVectorX", targetVectorX);
         compound.putFloat("TargetVectorY", targetVectorY);
         compound.putFloat("CurrentVectorX", currentVectorX);
@@ -341,10 +339,10 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
     @Override
     protected void read(CompoundTag compound, net.minecraft.core.HolderLookup.Provider registries, boolean clientPacket) {
         super.read(compound, registries, clientPacket);
-        westSignal = compound.getInt("WestSignal");
-        eastSignal = compound.getInt("EastSignal");
-        downSignal = compound.getInt("DownSignal");
-        upSignal = compound.getInt("UpSignal");
+        westSignal = compound.getFloat("WestSignal");
+        eastSignal = compound.getFloat("EastSignal");
+        downSignal = compound.getFloat("DownSignal");
+        upSignal = compound.getFloat("UpSignal");
         updateMappedTargets();
         targetVectorX = compound.contains("TargetVectorX") ? compound.getFloat("TargetVectorX") : targetVectorX;
         targetVectorY = compound.contains("TargetVectorY") ? compound.getFloat("TargetVectorY") : targetVectorY;
@@ -376,11 +374,10 @@ public class VectorThrusterBlockEntity extends IonThrusterBlockEntity {
         return PropulsionConfig.VECTOR_THRUSTER_BASE_THRUST.get();
     }
 
-    @Override
-    protected ParticleOptions createParticleOptions() {
-        // Particle narrows as the nozzle closes: 0.85 at idle, 0.35 at full throttle
+    /** Particle-mode nozzle narrows from 0.85 at idle to 0.35 at full redstone throttle. */
+    public ParticleOptions createVectorPlumeParticleOptions() {
         float size = Mth.lerp(currentFlapProgress, 0.85f, 0.35f);
-        return new IonParticleData(List.of(), getDyeColor(), size);
+        return new IonParticleData(java.util.List.of(), getDyeColor(), size);
     }
 
     // -----------------------------------------------------------------------
